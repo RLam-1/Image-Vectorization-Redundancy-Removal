@@ -1,0 +1,36 @@
+-
+biMinus1 : 0,-10
+ai : 0,0
+bi : 17,80
+shift : -55,38
+theta : 40
+alpha : 0.75
+-
+biMinus1 : 0,-10
+ai : 0,0
+bi : -17,80
+shift : -55,38
+theta : 40
+alpha : 0.5
+-
+biMinus1 : 0,-0.6
+ai : 0,0
+bi : 0.7,0.8
+shift : 0,0
+theta : 0
+alpha : 0.95
+-
+biMinus1 : 0,-2.0
+ai : 0,0
+bi : 0.3,-1.0
+shift : 0,0
+theta : 0
+alpha : 0.66
+-
+biMinus1 : 0,-1.4
+ai : 0,0
+bi : 0.4,-3.0
+shift : 0,0
+theta : 0
+alpha : 0.85
+-

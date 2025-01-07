@@ -25,6 +25,8 @@ from linesAPIs import *
 class determineContigSegFromLines:
 
    def __init__(self):
+      # store the minX, maxX, minY, maxY of this set of contig segs
+      self.minX = self.maxX = self.minY = self.maxY = float(0)
       # adjacenyMap will map pt and its adjacent pts
       #  with the form {(x, y) : [(adj1X, adj1Y), (adj2X, adj2Y)]}
       self.adjacencyMap = {}
@@ -36,17 +38,11 @@ class determineContigSegFromLines:
       # create APIs to translate the line so that it is consistent to avoid storing
       # the same line 2x and creating a map that is 2x as large as needed
       self.visitedLines = {}
-      # this map will store generated contigsSegs with their corresponding contigsSegsID
-      self.maxContigSegsIdx = 0
-      self.contigsSegsIdxToContigsSegs = {}
+
+      self.contigSegHashToContigSeg = {}
 
       # define lineIdx to lineCls map
-      self.maxLineIdx = 0
-      self.lineIdxToLineCls = {}
-      # this is the map of the lineCls obj to the line idx - this is used
-      # during generation of contig seg where 2 points are turned into a line - if
-      # line already exists - do NOT add new entry to the lineIdxToLineCls map
-      self.lineClsToLineIdx = {}
+      self.lineHashToLineCls = {}
 
       # this is map of the line idx to the contig idx that the line belongs to
       #  and the index / position of the line in the contig seg - thus the map is in the form
@@ -54,18 +50,23 @@ class determineContigSegFromLines:
       self.lineIdxToContigSegIdxAndPos = {}
 
       # this is map of pts to the contig segs that have said pt as a termPt
-      self.termPtToContigSegs = {}
+      self.termPtToContigSegsHash = {}
 
+      # this is a map of contig seg hash to the length of the web that the contig seg
+      # belongs to - a web is defined as the contig segs that are connected to each other (hence a web )
+      self.contigSegHashToWebLen = {}
+      # also have map of contig seg hash to other contig seg hashes in the web
+      self.contigSegHashToOtherContigSegsHashInWeb = {}
       # this is map of contig seg to their LHS, RHS neighbors, where LHS neighbors
       # are contig segs with termPt the same as the contig segs LHSMostTermPt
       # and same for RHSMostTermPt - thus the map has format
-      # {contigSegIdx : ([contigSegIdxs of LHS neighbors], [contigSegIdxs of RHS neighbors])}
+      # {contigSegIdx : [[contigSegIdxs of LHS neighbors], [contigSegIdxs of RHS neighbors]]}
       self.contigSegIdxToLRHSNeighbors = {}
 
-   def getAllContigsSegsAsList(self):
+   def getAllContigSegAsList(self):
       retContigSegList = []
-      for idx in self.contigsSegsIdxToContigsSegs:
-         retContigSegList.append(self.contigsSegsIdxToContigsSegs.get(idx))
+      for hashIdx in self.contigSegHashToContigSeg:
+         retContigSegList.append(self.contigSegHashToContigSeg.get(hashIdx))
 
       return retContigSegList
 
@@ -73,15 +74,11 @@ class determineContigSegFromLines:
    # as the lineMap for the
    def assignLineMapAndCreateAdjMap(self, lineMap):
       self.lineIdxToLineCls = copy.deepcopy(lineMap)
-      for lineEntry in lineMap:
-         line = lineMap.get(lineEntry)
-         if lineEntry > self.maxLineIdx:
-            self.maxLineIdx = lineEntry
-         self.lineClsToLineidx[line] = lineEntry
+      for lineEntry, line in lineMap.items():
 
          if not line.checkIfLineIsPoint():
-            startPt = (line.termPt1[0], line.termPt1[1])
-            endPt = (line.termPt2[0], line.termPt2[1])
+            startPt = line.getTermPt1AsTuple()
+            endPt = line.getTermPt2AsTuple()
             newPt = False
 
             if not self.adjacencyMap.get(startPt, None):
@@ -104,8 +101,8 @@ class determineContigSegFromLines:
       for line in listOfLines:
          # check if line is a pt
          if not line.checkIfLineIsPoint():
-            startPt = (line.termPt1[0], line.termPt1[1])
-            endPt = (line.termPt2[0], line.termPt2[1])
+            startPt = line.getTermPt1AsTuple()
+            endPt = line.getTermPt2AsTuple()
             newPt = False
 
             if not self.adjacencyMap.get(startPt, None):
@@ -124,16 +121,17 @@ class determineContigSegFromLines:
                   self.adjacencyMap[endPt].append(startPt)
 
    def insertLineIntoMap(self, line):
-      lineIdx = self.maxLineIdx
-      self.lineIdxToLineCls[lineIdx] = line
-      self.maxLineIdx += 1
-      return lineIdx
+      self.lineHashToLineCls[line.hash] = line
+      return line.hash
 
    def insertContigSegIntoMap(self, contigSeg):
-      contigSegIdx = self.maxContigSegsIdx
-      self.contigsSegsIdxToContigsSegs[contigSegIdx] = contigSeg
-      self.maxContigSegsIdx += 1
-      return contigSegIdx
+      contigSeg.finalizeContigSeg()
+      self.contigSegHashToContigSeg[contigSeg.hash] = contigSeg
+      return contigSeg.hash
+
+   def convertCSegsToLinesAndBCurves(self, alphaMax, epsilonVal):
+      for hash, cs in self.contigSegHashToContigSeg:
+         cs.convertContigSegToLinesAndBCurves(alphaMax, epsilonVal)
 
    # This API takes as input a tuple ((x1, y1), (x2, y2))
    # where x1, y1 is the start pt and x2, y2 is the end pt of the line
@@ -154,116 +152,114 @@ class determineContigSegFromLines:
 
    def givenPtsListCreateContigSegs(self, ptsList):
       continueContigSeg = False
-      contigSeg = contigsSegsCls()
+      contigSeg = contigSegCls()
 
       for i in range(len(ptsList)-2):
          line = lineCls()
          line.setStartPt(np.array([ptsList[i][0], ptsList[i][1]]))
          line.setEndPt(np.array([ptsList[i+1][0], ptsList[i+1][1]]))
 
-         lineIdx = self.lineClsToLineIdx.get(line, self.insertLineIntoMap(line))
-         continueContigSeg = contigSeg.insertLineToContigSeg(lineIdx, line)
+         if not line.checkIfLineIsPoint():
+            if not self.lineHashToLineCls.get(line.hash):
+               self.insertLineIntoMap(line)
 
-         if not continueContigSeg:
-            # push the contig seg into the map
-            contigSeg.finalizeContigSeg()
-            contigSegIdx = self.insertContigSegIntoMap(contigSeg)
-            for i in range(len(contigSeg.lineIdxs)):
-               self.lineIdxToContigSegIdxAndPos[contigSeg.lineIdxs[i]] = (contigSegIdx, i)
+            continueContigSeg = contigSeg.insertLineToContigSeg(line.hash, line)
 
-            contigSeg = contigsSegsCls()
-            contigSeg.insertLineToContigSeg(lineIdx, line)
+            if continueContigSeg is None:
+               # push the contig seg into the map
+               contigSegIdx = self.insertContigSegIntoMap(contigSeg)
+               for i in range(len(contigSeg.lineIdxs)):
+                  self.lineIdxToContigSegIdxAndPos[contigSeg.lineIdxs[i]] = (contigSegIdx, i)
+
+               contigSeg = contigSegCls()
+               contigSeg.insertLineToContigSeg(line.hash, line)
 
       # after the loop if contig seg is not empty - must push it into map
       if len(contigSeg.lines) > 0:
          self.insertContigSegIntoMap(contigSeg)
 
+   def genMapsOfCSNeighbors(self):
       # generate map of {coord pt : [contig idxs that have termPt as pt]}
-      for contigEntry in self.contigsSegsIdxToContigsSegs:
-         contigSeg = self.contigsSegsIdxToContigsSegs[contigEntry]
-         if not self.termPtToContigSegs.get(contigSeg.LHSMostTermPt):
-            self.termPtToContigSegs[contigSeg.LHSMostTermPt] = [contigEntry]
-         elif contigEntry not in self.termPtToContigSegs[contigSeg.LHSMostTermPt]:
-            self.termPtToContigSegs[contigSeg.LHSMostTermPt].append(contigEntry)
-         if not self.termPtToContigSegs.get(contigSeg.RHSMostTermPt):
-            self.termPtToContigSegs[contigSeg.RHSMostTermPt] = [contigEntry]
-         elif contigEntry not in self.termPtToContigSegs[contigSeg.RHSMostTermPt]:
-            self.termPtToContigSegs[contigSeg.RHSMostTermPt].append(contigEntry)
+      for contigEntry, contigSeg in self.contigSegHashToContigSeg.items():
+         if not self.termPtToContigSegsHash.get(contigSeg.getLHSMostTermPtAsTuple()):
+            self.termPtToContigSegsHash[contigSeg.getLHSMostTermPtAsTuple()] = [contigEntry]
+         elif contigEntry not in self.termPtToContigSegsHash[contigSeg.getLHSMostTermPtAsTuple()]:
+            self.termPtToContigSegsHash[contigSeg.getLHSMostTermPtAsTuple()].append(contigEntry)
+         if not self.termPtToContigSegsHash.get(contigSeg.getRHSMostTermPtAsTuple()):
+            self.termPtToContigSegsHash[contigSeg.getRHSMostTermPtAsTuple()] = [contigEntry]
+         elif contigEntry not in self.termPtToContigSegsHash[contigSeg.getRHSMostTermPtAsTuple()]:
+            self.termPtToContigSegsHash[contigSeg.getRHSMostTermPtAsTuple()].append(contigEntry)
 
-      # generate the map of {contig seg idx : ([LHSNeighbors], [RHSNeighbors])}
-      for ptEntry in self.termPtToContigSegs:
-         contigSegs = self.termPtToContigSegs[ptEntry]
-         for i in range(len(contigSegs)):
-            if not self.contigSegIdxToLRHSNeighbors.get(i):
-               self.contigSegIdxToLRHSNeighbors[i] = [None, None]
+      # generate the map of {contig seg idx : [[LHSNeighbors], [RHSNeighbors]]}
+      for ptEntry in self.termPtToContigSegsHash:
+         contigSegs = self.termPtToContigSegsHash[ptEntry]
+         for i, csHash in enumerate(contigSegs):
+            if not self.contigSegIdxToLRHSNeighbors.get(csHash):
+               self.contigSegIdxToLRHSNeighbors[csHash] = [None, None]
             contigNeighbors = [contigSegs[j] for j in range(len(contigSegs)) if j != i]
-            if np.array_equal(ptEntry, self.contigsSegsIdxToContigsSegs.get(contigSegs[i]).LHSMostTermPt):
-               self.contigSegIdxToLRHSNeighbors[i][0] = contigNeighbors
-            elif np.array_equal(ptEntry, self.contigsSegsIdxToContigsSegs.get(contigSegs[i]).RHSMostTermPt):
-               self.contigSegIdxToLRHSNeighbors[i][1] = contigNeighbors
+            if np.array_equal(ptEntry, self.contigSegHashToContigSeg.get(csHash).LHSMostTermPt):
+               if not self.contigSegIdxToLRHSNeighbors[csHash][0]:
+                  self.contigSegIdxToLRHSNeighbors[csHash][0] = contigNeighbors
+               else:
+                  self.contigSegIdxToLRHSNeighbors[csHash][0].extend(contigNeighbors)
+            elif np.array_equal(ptEntry, self.contigSegHashToContigSeg.get(csHash).RHSMostTermPt):
+               if not self.contigSegIdxToLRHSNeighbors[csHash][1]:
+                  self.contigSegIdxToLRHSNeighbors[csHash][1] = contigNeighbors
+               else:
+                  self.contigSegIdxToLRHSNeighbors[csHash][1].extend(contigNeighbors)
 
-      for contigSegIdx in self.contigSegIdxToLRHSNeighbors:
-         self.contigSegIdxToLRHSNeighbors[contigSegIdx] = tuple(self.contigSegIdxToLRHSNeighbors[contigSegIdx])
-
-   # this API generates a map of an open contig seg idx to its cumulative length
+   # this API generates map of contig seg hash to the length of the 'web'
+   # that contig seg belongs to
    #
-   # a contig seg is considered open if >=1 of its termPts is NOT connected to another
-   #  contig seg
-   #
-   # the cumulative length is the length of own contig seg plus all contig segs
-   # connected to it and all the contig segs connected to those and so on and so forth
-   #  NOTE - each contig seg is only counted ONCE in case of loops
-   def genMapOfOpenContigSegIdxToCumulativeLen(self):
-      contigSegIdxToCumulativeLenMap = {}
-      cumulativeLenToContigSegIdxMap = {}
-      for contigSegIdx in self.contigSegIdxToLRHSNeighbors:
-         contigSegIdxNeighbors = self.contigSegIdxToLRHSNeighbors[contigSegIdx]
-         if not contigSegIdxNeighbors[0]:
-            neighborIdx = 1
-         elif not contigSegIdxNeighbors[1]:
-            neighborIdx = 0
-         else:
-            neighborIdx = None
+   #  in this context, a 'web' is defined as a set of contig segs that are connected
+   #  to each other, and the length of a web is defined as the total length of the contig segs
+   #  that make up this web
+   def genMapOfContigSegHashToWebLen(self):
+      processedPts = {}
+      for NPpt, contigSegsHash in self.termPtToContigSegsHash.items():
+         pt = tuple(NPpt)
+         if pt not in processedPts:
+            stack = [pt]
+            webLen = 0
+            contigSegsInWeb = []
 
-         contigCumulativeLen = self.contigSegIdxToContigSeg[contigSegIdx].length
+            while stack:
+               currPt = stack.pop()
+               for contigSegHash in self.termPtToContigSegsHash.get(currPt):
+                  # for the contig seg with unique hash that has a termPt
+                  # as currPt, need to get the other termPt
+                  if np.array_equal(currPt, self.contigSegHashToContigSeg.get(contigSegHash).startPt):
+                     otherPt = self.contigSegHashToContigSeg.get(contigSegHash).getEndPtAsTuple()
+                  elif np.array_equal(currPt, self.contigSegHashToContigSeg.get(contigSegHash).endPt):
+                     otherPt = self.contigSegHashToContigSeg.get(contigSegHash).getStartPtAsTuple()
+                  else:
+                     otherPt = None
 
-         if neighborIdx:
-            neighborQueue = copy.deepcopy(contigSegIdxNeighbors[neighborIdx])
-            includedContigSegs = [contigSegIdx]
-            while neighborQueue:
-               # pop the index we are visiting
-               visitingIdx = neighborQueue.pop(0)
-               if visitingIdx not in includedContigSegs:
-                  includedContigSegs.append(visitingIdx)
-                  contigCumulativeLen += self.contigSegIdxToContigSeg[visitingIdx].length
-                  # put neighbors in queue
-                  fullNeighbors = []
-                  if self.contigSegIdxToLRHSNeighbors[visitingIdx][0]:
-                     fullNeighbors.extend(self.contigSegIdxToLRHSNeighbors[visitingIdx][0])
-                  if self.contigSegIdxToLRHSNeighbors[visitingIdx][1]:
-                     fullNeighbors.extend(self.contigSegIdxToLRHSNeighbors[visitingIdx][1])
+                  if otherPt and otherPt not in processedPts and \
+                     otherPt not in stack:
+                     stack.append(otherPt)
 
-                  for neighbor in fullNeighbors:
-                     if neighbor not in includedContigSegs:
-                        neighborQueue.append(neighbor)
+                  # now add len of contig seg to len of web
+                  webLen += self.contigSegHashToContigSeg.get(contigSegHash).length
+                  contigSegsInWeb.append(contigSegHash)
 
-         if not cumulativeLenToContigSegIdxMap.get(contigCumulativeLen):
-            cumulativeLenToContigSegIdxMap[contigCumulativeLen] = [contigSegIdx]
-         else:
-            cumulativeLenToContigSegIdxMap[contigCumulativeLen].append(contigSegIdx)
+               # now that this currPt has been completely processed (ie. visited all of the contig segs
+               #  that this pt touches AND pushed all of its neighboring pts set by contig segs )
+               #  push this pt to processedPts
+               processedPts[currPt] = True
 
-      # sort the map so that the longest segs are first
-      contigSegIdxToCumulativeLenMap = {}
-      cumulativeLenKeys = sorted(cumulativeLenToContigSegIdxMap, reverse=True)
-      for cumulativeLenEntry in cumulativeLenKeys:
-         for contigSegEntry in cumulativeLenToContigSegIdxMap[contigSegEntry]:
-            contigSegIdxToCumulativeLenMap[contigSegEntry] = cumulativeLenEntry
+            # now that this stack is complete - this means that the web that the pt in the initial
+            # for loop is part of has been completely crawled - assign each contig seg hash captured
+            #  with this total web length
+            for webElemIdx, contigSegHash in enumerate(contigSegsInWeb):
+               self.contigSegHashToWebLen[contigSegHash] = webLen
+               self.contigSegHashToOtherContigSegsHashInWeb[contigSegHash] = contigSegsInWeb[:webElemIdx] + \
+                                                                             contigSegsInWeb[webElemIdx+1:]
 
-      return contigSegIdxToCumulativeLenMap
 
    def drawLinesToImg(self, img, arrowed):
       line_thickness = 1
-      for idx, line in self.lineIdxToLineCls.items():
+      for idx, line in self.lineHashToLineCls.items():
          if arrowed:
             cv.arrowedLine(img, (line.termPt1[0], line.termPt1[1]), (line.termPt2[0], line.termPt2[1]), (0, 255, 0), line_thickness, tipLength=0.5)
          else:
@@ -301,6 +297,17 @@ class determineContigSegFromLines:
             #
             #  on the 2nd iteration - allow pt with 2 neighbors to start as this is an isolated
             #  closed loop
+
+            # update the minX / maxX / minY / maxY
+            if self.minX > pt[0]:
+               self.minX = pt[0]
+            if self.maxX < pt[0]:
+               self.maxX = pt[0]
+            if self.minY > pt[1]:
+               self.minY = pt[1]
+            if self.maxY < pt[1]:
+               self.maxY = pt[1]
+
             if not self.visitedPts.get(pt, None) and \
                not ((len(self.adjacencyMap[pt]) == 2) and (i == 0)):
                # first populate adjStack with immediate neighbors that have not been visited
@@ -362,3 +369,13 @@ class determineContigSegFromLines:
                         self.givenPtsListCreateContigSegs(potentialContigSegPtsList)
                         # clear the termPotentialContigSegPtList
                         potentialContigSegPtsList = []
+
+      # here - generate map of termPtToContigSegsHash (which maps the pt coord
+      #        to the contig segs that have this pt as start or end pt - defined
+      #        as termPt (short for terminal))
+      #        also generate map of contig seg to its neighbors
+      #           - this is stored purely using the hash values of key contig seg
+      #             and its neighbor values
+      self.genMapsOfCSNeighbors()
+      # here - generate the contig seg hash to web len
+      self.genMapOfContigSegHashToWebLen()

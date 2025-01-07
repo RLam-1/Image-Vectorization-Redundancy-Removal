@@ -16,12 +16,6 @@ from linesAPIs import *
 from squareGridCls import *
 from determineContigSegFromLines import *
 
-testImg = "/home/rudy/imgProjPython/HomerSimpson.png"
-testOutImg = "/home/rudy/imgProjPython/HomerSimpsonOut.png"
-autoEdgeImg = "/home/rudy/imgProjPython/HomerSimpsonAuto.png"
-wideEdgeImg = "/home/rudy/imgProjPython/HomerSimpsonWide.png"
-tightEdgeImg = "/home/rudy/imgProjPython/HomerSimpsonTight.png"
-testOutPathPart1 = "/home/rudy/imgProjPython/HomerSimpsonOut"
 testOutType = "KCOS"
 contigSeg = "CONTIGSEG"
 testOutPathPart2 = ".png"
@@ -361,66 +355,12 @@ def readLineMapClsContoursFromJSON(jsonName):
 
    return lineMap
 
-def crawlContourForUniqueSeg(lineMap, contourIdx, delContour1, queue):
-   contourUnique = lineMap.crawlContoursForContiguousParallelSegs(contourIdx, contourIdx, delContour1)
-   if not delContour1:
-      queue.put({1:contourUnique})
-   else:
-      queue.put({2:contourUnique})
-
-def multiprocessCrawlContourForUniqueSeg(lineMap, contourIdx):
-   uniqueContQ = multiprocessing.Queue()
-   keepCont1Cont2List = [False, True]
-
-   uniqueProcessesToJoin = []
-   for keepEntry in keepCont1Cont2List:
-      p = multiprocessing.Process(target=crawlContourForUniqueSeg, args=(lineMap, contourIdx, keepEntry, uniqueContQ))
-      time.sleep(5)
-      uniqueProcessesToJoin.append(p)
-      p.start()
-
-   for process in uniqueProcessesToJoin:
-      process.join()
-
-   retDict = {}
-
-   while not uniqueContQ.empty():
-      retDict.update(uniqueContQ.get())
-
-   return retDict
-
-### given list of contours of the form contigsSegsCls
+### given list of lines
 ### get the XMin, XMax, YMin, and YMax in the form of tuple
-def getXYMinMaxFromListOfContigsSegs(inputContigsSegsList):
+### (XMin, XMax, YMin, YMax)
+def getXYMinMaxFromListOfLines(listOfLines):
    XMin = XMax = YMin = YMax = 0
-   for contigsSegs in inputContigsSegsList:
-      for contigsSegsLine in contigsSegs.lines:
-         if contigsSegsLine.termPt1[0] < XMin:
-            XMin = contigsSegsLine.termPt1[0]
-         elif contigsSegsLine.termPt1[0] > XMax:
-            XMax = contigsSegsLine.termPt1[0]
-         if contigsSegsLine.termPt2[0] < XMin:
-            XMin = contigsSegsLine.termPt2[0]
-         elif contigsSegsLine.termPt2[0] > XMax:
-            XMax = contigsSegsLine.termPt2[0]
-
-         if contigsSegsLine.termPt1[1] < YMin:
-            YMin = contigsSegsLine.termPt1[1]
-         elif contigsSegsLine.termPt1[1] > YMax:
-            YMax = contigsSegsLine.termPt1[1]
-         if contigsSegsLine.termPt2[1] < YMin:
-            YMin = contigsSegsLine.termPt2[1]
-         elif contigsSegsLine.termPt2[1] > YMax:
-            YMax = contigsSegsLine.termPt2[1]
-
-   return (XMin, XMax, YMin, YMax)
-
-### given map of line idx to lineCls objects
-### get the XMin, XMax, YMin, YMax in the form of tuple
-def getXYMinMaxFromLineMap(lineMap):
-   XMin = XMax = YMin = YMax = 0
-   for lineEntry in lineMap:
-      line = lineMap[lineEntry]
+   for line in listOfLines:
       if line.termPt1[0] < XMin:
          XMin = line.termPt1[0]
       elif line.termPt1[0] > XMax:
@@ -441,6 +381,21 @@ def getXYMinMaxFromLineMap(lineMap):
 
    return (XMin, XMax, YMin, YMax)
 
+### given list of contours of the form contigSegCls
+### get the XMin, XMax, YMin, and YMax in the form of tuple
+def getXYMinMaxFromListOfContigsSegs(inputContigsSegsList):
+   XMin = XMax = YMin = YMax = 0
+   lineList = []
+   for contigsSegs in inputContigsSegsList:
+      lineList.extend(contigsSegs.lines)
+   return getXYMinMaxFromListOfLines(lineList)
+
+### given map of line idx to lineCls objects
+### get the XMin, XMax, YMin, YMax in the form of tuple
+def getXYMinMaxFromLineMap(lineMap):
+   XMin = XMax = YMin = YMax = 0
+   lineList = [line for idx, line in lineMap.items()]
+   return getXYMinMaxFromListOfLines(lineList)
 
 ### given lineCls objects - generate contig seg
 #   using determineContigSegFromLines class
@@ -451,27 +406,77 @@ def getXYMinMaxFromLineMap(lineMap):
 #real	0m2.043s
 #user	0m1.981s
 #sys	0m0.053s
-def genContigSegsUsingNodeGraph(lineMap, drawContigSegs=True):
+# takes 3 potential keyword inputs
+#  if lineMap is passed in - pass in as kargs.lineMap
+#  elif lineList is passed in - pass in as kargs.lineList
+#  also pass in kargs.drawContigSegs - if TRUE draw the contig segs
+def genContigSegsUsingNodeGraph(**kargs):
+   if kargs.get("lineMap"):
+      linesList = kargs.get("lineMap").getAllLinesAsList()
+   else:
+      linesList = kargs.get("lineList",[])
+
    ptsGraph = determineContigSegFromLines()
-   ptsGraph.populateAdjacencyMapFromLines(lineMap.getAllLinesAsList())
+   ptsGraph.populateAdjacencyMapFromLines(linesList)
+
    ptsGraph.genContigSegsUsingGraphAdj()
 
-   if drawContigSegs:
-      drawListOfContigSegsToImg(ptsGraph.getAllContigsSegsAsList(), lineMap.imgHeight, lineMap.imgWidth, testOutPathPart1 + "CONTIGS_SEGS_FROM_GRAPH" + testOutPathPart2, False)
+   if kargs.get("drawContigSegs"):
+      drawListOfContigSegsToImg(ptsGraph.getAllContigSegAsList(), \
+                                kargs.get("lineMap").imgHeight, \
+                                kargs.get("lineMap").imgWidth, \
+                                testOutPathPart1 + "CONTIGS_SEGS_FROM_GRAPH" + testOutPathPart2, False)
 
-      imgOutLine = np.ones([lineMap.imgHeight, lineMap.imgWidth], dtype=np.uint8)*255
+      imgOutLine = np.ones([kargs.get("lineMap").imgHeight, kargs.get("lineMap").imgWidth], dtype=np.uint8)*255
       ptsGraph.drawLinesToImg(imgOutLine, False)
       cv.imwrite(testOutPathPart1 + "LINES_FROM_GRAPH" + testOutPathPart2, imgOutLine)
 
    return ptsGraph
 
+# return map of linesIdx to lineObjects
+# this API does the following
+#  1) insert line objects from linemap into a square grid object
+#  2) crawl thru the square grid object to find lines that potentially cross Each
+#     other
+#  3) handle lines that cross each other by splitting those 2 lines into 4
+#      lines and turning the pt of intersection into the end pt for each of those
+#      4 new lines
+def useGridOverlayToSeparateIntersectLines(inputLineMap):
+   # first get square grid dimensions xmin, xmax, ymin, and ymax from the linesMap
+   squareGridMinMax = getXYMinMaxFromLineMap(inputLineMap.lineIdxToLineMap)
+   # create grid of squares given XMin, XMax, YMin, YMax
+
+   # for now set squareDim = 10.0
+   squareDim = 10.0
+
+   # generate grid of squares as gridOverlay
+   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], \
+                         squareGridMinMax[2], squareGridMinMax[3], \
+                         squareDim, False, lineMap=inputLineMap)
+
+   gridOverlay.displayGridData()
+
+   gridOverlay.insertLineMapIntoGrid(inputLineMap.lineIdxToLineMap)
+
+   # loop thru the grid of squares to get the redundant segs
+   redundFound = gridOverlay.crawlThruGridToResolvePairedSegs(checkIf2LinesIntersect)
+   # sort the refIdx, which is the line idx that is used to compare which line segs are redundant
+   #  the criteria for redundancy are in the API in the squareGridCls
+   gridOverlay.sortRefIdxs()
+
+   # now that the pairs of the lines that intersect are determined - must handle those intersect lines
+   gridOverlay.splitLinesThatCrossAndIntersect()
+
+   return gridOverlay.returnLinesInGrid()
+
 # return tuple of (boolean, lineClsList)
 #  boolean indicates whether redundant line segs found - TRUE if yes
 #  lineClsList - it is only a list of lineCls objects
-def useGridOverlayToRemoveRedundantContigSegs(contigsSegsList):
+def useGridOverlayToRemoveRedundantContigSegs(inputContigSegsMap, holesToInsert=[]):
 
    # first get the square grid dimensions xmin, xmax, ymin, and ymax from the list of contigSegs
-   squareGridMinMax = getXYMinMaxFromListOfContigsSegs(contigsSegsList)
+   squareGridMinMax = (inputContigSegsMap.minX, inputContigSegsMap.maxX, \
+                       inputContigSegsMap.minY, inputContigSegsMap.maxY)
    width = (squareGridMinMax[1] - squareGridMinMax[0]) * 2
    height = (squareGridMinMax[3] - squareGridMinMax[2]) * 2
 
@@ -481,18 +486,23 @@ def useGridOverlayToRemoveRedundantContigSegs(contigsSegsList):
    squareDim = 10.0
 
    # generate the grid of squares as gridOverlay
-   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], squareGridMinMax[2], squareGridMinMax[3], squareDim)
+   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], \
+                         squareGridMinMax[2], squareGridMinMax[3], \
+                         squareDim, True, contigSegsMap=inputContigSegsMap)
 
    # CHECKPOINT - DISPLAY GRID CHARACTERISTICS TO CHECK IF GRID CORRECTLY SET UP
    gridOverlay.displayGridData()
 
-   for contigsSegs in contigsSegsList:
+   for contigsSegs in inputContigSegsMap.getAllContigSegAsList():
       gridOverlay.insertContigSegIntoGrid(contigsSegs)
+
+   for hole in holesToInsert:
+      gridOverlay.insertHoleIntoGrid(hole)
 
  #  gridOverlay.displayGridSquareData()
    # print out logs that show which grids a certain line occupies
    for lineIdx in gridOverlay.lineSegIdxToGridsOccupied:
-      gridCoords = gridOverlay.lineSegIdxToGridsOccupied.get(lineIdx, None)
+      gridCoords = gridOverlay.lineSegIdxToGridsOccupied.get(lineIdx)
       print("line " + str(lineIdx) + " occupies the following grids " + str(gridCoords))
 
       for cIdx in range(len(gridCoords)-1):
@@ -505,91 +515,42 @@ def useGridOverlayToRemoveRedundantContigSegs(contigsSegsList):
    print("Number of lines inserted into grid is " + str(gridOverlay.linesInsertedIntoGrid))
 
    # loop thru the grid of squares to get the redundant segs
-   redundFound = gridOverlay.crawlThruGridToGetRedundantSegs()
+   redundFound = gridOverlay.crawlThruGridToResolvePairedSegs(checkIf2LinesRedundant, maxPerpDist=5.0)
    # sort the refIdx, which is the line idx that is used to compare which line segs are redundant
    #  the criteria for redundancy are in the API in the squareGridCls
    gridOverlay.sortRefIdxs()
 
    # log pairs of ref line idx to redundant segs
    for refIdx in gridOverlay.inOrderRefIdx:
-      print("refIdx " + str(refIdx) + " has parallel segs " + str(gridOverlay.lineSegToParallelLineSegs.get(refIdx, None)))
+      print("refIdx " + str(refIdx) + " has parallel segs " + str(gridOverlay.lineSegToPairedLineSegs.get(refIdx)))
 
-  # gridOverlay.crawlLineSegToParallelLineSegsMapForRedundSegsToDelete()
    gridOverlay.crawlRefSegsToRmvRedundancy()
 
-   resultLineMap = copy.deepcopy(gridOverlay.lineSegIdxToLineSeg)
+   return gridOverlay.returnLinesInGrid(), gridOverlay.returnRmvedLinesInGrid()
 
-   for refSegIdx in gridOverlay.refSegIdxToCroppedLineSegs:
-      resultLineMap[refSegIdx] = gridOverlay.refSegIdxToCroppedLineSegs[refSegIdx]
+# this API is used to:
+#   - given the lines that remain after the 1st pass of removing redundant contig segs
+#     there may be cases where at one portion, contig seg A remains but in another portion,
+#     contig seg B of the parallel contig segs is used, causing a staggering effect like
+#      --------_____ for example - this function attempts to resolve this by
+#     1) crawling thru the contig segs in order of len of web that the contig seg is a part of
+#        - check if there is a hole or removed redundant portion that used to be attached
+#           to the contig seg start / end property
+#     2) if there is - check its corresponding redundant line seg that still exists
+#         - if the redundant line seg still exists:
+#               - restore the removed seg (hole)
+#               - delete its corresponding redundant line seg that is still hanging around
+def userGridOverlayToAlignCurves(inputContigSegsMap, removedRedundantLines):
+   # first get the square grid dimensions xmin, xmax, ymin, and ymax from the list of contigSegs
+   rmvRedundLinesMinMax = getXYMinMaxFromListOfLines(removedRedundantLines)
 
-   resultLinesList = []
-   for refIdx in resultLineMap:
-      if type(resultLineMap[refIdx]) == list:
-          resultLinesList.extend(resultLineMap[refIdx])
-      else:
-          resultLinesList.append(resultLineMap[refIdx])
+   squareGridMinMax = ( min(rmvRedundLinesMinMax[0], inputContigSegsMap.minX), \
+                        max(rmvRedundLinesMinMax[1], inputContigSegsMap.maxX), \
+                        min(rmvRedundLinesMinMax[2], inputContigSegsMap.minY), \
+                        max(rmvRedundLinesMinMax[3], inputContigSegsMap.maxY) )
 
-  # for contigIdx in gridOverlay.contigSegIdxToLinesToDel:
-  #    contigSegLinesToDel = gridOverlay.contigSegIdxToLinesToDel.get(contigIdx, None)
-  #    print("contig idx " + str(contigIdx) + " has the following lines to delete " + str(contigSegLinesToDel))
-
-  #    if contigSegLinesToDel:
-  #       gridOverlay.contigSegIdxToContigSeg[contigIdx].deleteLinesFromContigSegByLineIdxs(contigSegLinesToDel)
-  #       print("contig idx " + str(contigIdx) + " has the following line idxs " + str(gridOverlay.contigSegIdxToContigSeg[contigIdx].lineIdxs))
-  #       print("contig idx " + str(contigIdx) + " has the following groups of segments " + str(gridOverlay.contigSegIdxToContigSeg[contigIdx].contigSegments))
-
-      # draw contig segs 547, 437, 491, 612, 432, 460 from gridOverlay
- #     contigsToDraw = [gridOverlay.contigSegIdxToContigSeg[547], gridOverlay.contigSegIdxToContigSeg[437], gridOverlay.contigSegIdxToContigSeg[491], gridOverlay.contigSegIdxToContigSeg[612], gridOverlay.contigSegIdxToContigSeg[432], gridOverlay.contigSegIdxToContigSeg[460]]
-  #    contigsImgName = testOutPathPart1 + "AFTER_DEL_COLORCONTIG_547_437_491_612_432_460" + testOutPathPart2
-   #   drawListOfColorContigSegsToImg(contigsToDraw, lineMap.imgHeight, lineMap.imgWidth, contigsImgName, False, gridOverlay.lineSegIdxToLineSeg)
-
-   # draw entire HOMER SIMPSON from gridOverlay contig segs
-   allContigSegs = []
-   for contigIdx in gridOverlay.contigSegIdxToContigSeg:
-      allContigSegs.append(gridOverlay.contigSegIdxToContigSeg[contigIdx])
-
-   #drawListOfContigSegsToImg(allContigSegs, height, width, testOutPathPart1 + "GRIDOVERLAY_HOMER_SIMPSON_RMV_REDUNDANT_CONTOURS" + testOutPathPart2, False, resultLineMap)
-
-   finalLineMap = lineMapCls()
-   for lineEntry in resultLinesList:
-       finalLineMap.insertLineToIdxMap(lineEntry)
-   finalLineMap.generateImgFromLines(testOutPathPart1 + "GRIDOVERLAY_HOMER_SIMPSON_RMV_REDUNDANT_CONTOURS_FROMLINEMAP" + testOutPathPart2)
-
-   return (redundFound, resultLinesList)
-
-def handleProcessingOfContoursInImg(lineMap):
-
-   ### <-THIS IS THE API that generates UNIQUE CONTOURS
-   ###   within the lineMapCls and stores them in
-   #
-   ###   lineMap.contourIdxToUniqueContigSegs
-   #
-   ### which is of the form {contourIdx : uniqueContour of type contigsSegsCls}
-   lineMap.processUniqueContsIntoUniqueContigSegs()
-
-   ### NEXT - TAKE THE UNIQUE CONTOURS AND SEE IF ANY SEGMENTS OVERLAP
-
-   # 1) First - create grid of square units that will overlay all of the contours
-   #   grid needs XMin, XMax, YMin, YMax, and the dimension of the square grid
-   #   get XMin, XMax, YMin, YMax from of existing contours, which in this case is
-   #   stored in lineMap.contourIdxToUniqueContigSegs -> this map is a map of { contourIdx : listOfContigSegsForContour }
-   contigsSegsList = []
-   for contourIdx in lineMap.contourIdxToUniqueContigSegs:
-      contigsSegsList.extend(lineMap.contourIdxToUniqueContigSegs[contourIdx])
-
-   foundNonContigIdx = False
-
-   for contigsIdx in range(len(contigsSegsList)):
-      if not contigsSegsList[contigsIdx].checkContigSegIsContiguous():
-         print("contigsSegs with idx " + str(contigsIdx) + " is not contiguous")
-         foundNonContigIdx = True
-
-   if foundNonContigIdx:
-      sys.exit()
-
-   drawListOfContigSegsToImg(contigsSegsList, lineMap.imgHeight, lineMap.imgWidth, testOutPathPart1 + "PRE_GRIDOVERLAY_HOMER_SIMPSON_FILTER_SELF_ONLY_CONTOUR" + testOutPathPart2, False)
-
-   squareGridMinMax = getXYMinMaxFromListOfContigsSegs(contigsSegsList)
+   width = (squareGridMinMax[1] - squareGridMinMax[0]) * 2
+   height = (squareGridMinMax[3] - squareGridMinMax[2]) * 2
 
    # create grid of squares given XMin, XMax, YMin, YMax
 
@@ -597,97 +558,83 @@ def handleProcessingOfContoursInImg(lineMap):
    squareDim = 10.0
 
    # generate the grid of squares as gridOverlay
-   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], squareGridMinMax[2], squareGridMinMax[3], squareDim)
+   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], \
+                         squareGridMinMax[2], squareGridMinMax[3], \
+                         squareDim, False, contigSegsMap=inputContigSegsMap)
+
+   for contigSegHash, contigSeg in inputContigSegsMap.contigSegHashToContigSeg.items():
+      gridOverlay.insertContigSegIntoGrid(contigSeg)
+
+   # now that the contig segs have been inserted into the grid, now insert
+   # the holes into the grid
+
+   #  generate a map of hole terminal pts to holes
+   mapOfHolePtsToHoles = {}
+   for hole in removedRedundantLines:
+      if not mapOfHolePtsToHoles.get(hole.getTermPt1AsTuple()):
+         mapOfHolePtsToHoles[hole.getTermPt1AsTuple()] = [hole.hash]
+      else:
+         if not hole.hash in mapOfHolePtsToHoles[hole.getTermPt1AsTuple()]:
+            mapOfHolePtsToHoles[hole.getTermPt1AsTuple()].append(hole.hash)
+      if not mapOfHolePtsToHoles.get(hole.getTermPt2AsTuple()):
+         mapOfHolePtsToHoles[hole.getTermPt2AsTuple()] = [hole.hash]
+      else:
+         if not hole.hash in mapOfHolePtsToHoles[hole.getTermPt2AsTuple()]:
+            mapOfHolePtsToHoles[hole.getTermPt2AsTuple()].append(hole.hash)
+
+      # insert hole into grid
+      gridOverlay.insertHoleIntoGrid(hole)
+
+   # refill holes if needed and remove disjoint shorter contig segs
+   gridOverlay.refillParticularHolesWithExistingSegs(mapOfHolePtsToHoles)
+
+# This API uses curve projection to remove any parallel / redundant contig segs
+#  INPUT:
+#   contigSegsPtsGraph object which contains the contig segs
+#  This API does the following:
+#   1) For each contig seg - combine the lineCls segments into BCurves
+#   2) insert the lineCls portions of the contig seg into the grid - for BCurves
+#      generate "representative" lineCls objects of the curve and insert those into
+#      the grid
+#   3) Starting with the longest contig segs - check in the contig segs for the
+#      longest bCurves -> project these bCurves to see if there are redundant
+#      lineCls objects - if there are, remove the redundant lineCls object
+#   4) TENTATIVE - also use projection to close any gaps
+def useGridOverlayAndCurveProjToRmvRedundContigSegs(contigSegsPtsGraph, alpha, epsilonVal, holes=[]):
+   # convert each contig seg in the graph to be made up of combined bCurves and lineCls objects
+   contigSegsPtsGraph.convertCSegsToLinesAndBCurves(alpha, epsilonVal)
+
+   # first get the square grid dimensions xmin, xmax, ymin, and ymax from the list of contigSegs
+   squareGridMinMax = (contigSegsPtsGraph.minX, contigSegsPtsGraph.maxX, \
+                       contigSegsPtsGraph.minY, contigSegsPtsGraph.maxY)
+   width = (squareGridMinMax[1] - squareGridMinMax[0]) * 2
+   height = (squareGridMinMax[3] - squareGridMinMax[2]) * 2
+
+   # create grid of squares given XMin, XMax, YMin, YMax
+
+   # for now try squareDim = 10.0 as the max perp dist between 2 lines to be considered as overlap is 5.0
+   squareDim = 10.0
+
+   # generate the grid of squares as gridOverlay
+   gridOverlay = gridCls(squareGridMinMax[0], squareGridMinMax[1], \
+                         squareGridMinMax[2], squareGridMinMax[3], \
+                         squareDim, False, contigSegsMap=contigSegsPtsGraph)
 
    # CHECKPOINT - DISPLAY GRID CHARACTERISTICS TO CHECK IF GRID CORRECTLY SET UP
    gridOverlay.displayGridData()
 
-   for contigsSegs in contigsSegsList:
+   for contigsSegs in inputContigSegsMap.getAllContigSegAsList():
       gridOverlay.insertContigSegIntoGrid(contigsSegs)
 
- #  gridOverlay.displayGridSquareData()
-   for lineIdx in gridOverlay.lineSegIdxToGridsOccupied:
-      gridCoords = gridOverlay.lineSegIdxToGridsOccupied.get(lineIdx, None)
-      print("line " + str(lineIdx) + " occupies the following grids " + str(gridCoords))
+   for hole in holes:
+      gridOverlay.insertHoleIntoGrid(hole)
 
-      for cIdx in range(len(gridCoords)-1):
-         if (abs(gridCoords[cIdx+1][0] - gridCoords[cIdx][0]) > 1) or \
-            (abs(gridCoords[cIdx+1][1] - gridCoords[cIdx][1]) > 1):
-            print("line idx " + str(lineIdx) + " grid " + str(gridCoords[cIdx]) + " and grid " + str(gridCoords[cIdx+1]) + " are not adjacent")
+   # now populate the lineCls objects adjacency map of the grid
+   gridOverlay.insertAllLinesIntoAdjMap()
 
-
-   print("Number of lines processed is " + str(gridOverlay.linesProcessed))
-   print("Number of lines inserted into grid is " + str(gridOverlay.linesInsertedIntoGrid))
-
-   gridOverlay.crawlThruGridToGetRedundantSegs()
-   gridOverlay.sortRefIdxs()
-
-   for refIdx in gridOverlay.inOrderRefIdx:
-      print("refIdx " + str(refIdx) + " has parallel segs " + str(gridOverlay.lineSegToParallelLineSegs.get(refIdx, None)))
-
-   priSegToSecTuples = gridOverlay.convertLineSegToLineSegsTupleMap(gridOverlay.lineSegToParallelLineSegs, 0, len(list(gridOverlay.lineSegToParallelLineSegs.keys()))-1)
-
-   gridOverlay.crawlLineSegToParallelLineSegsMapForRedundSegsToDelete()
-
-   for refIdx in gridOverlay.inOrderRefIdx:
-      print("refIdx " + str(refIdx) + " belonging to contig seg " + str(gridOverlay.lineSegIdxToContigSegIdxs[refIdx]) + " with contig seg length " + str(gridOverlay.contigSegIdxToContigSeg[gridOverlay.lineSegIdxToContigSegIdxs[refIdx]].length) + " has parallel tupled segs " + str(priSegToSecTuples.get(refIdx, None)))
-
-   for contigIdx in gridOverlay.contigSegIdxToLinesToDel:
-      contigSegLinesToDel = gridOverlay.contigSegIdxToLinesToDel.get(contigIdx, None)
-      print("contig idx " + str(contigIdx) + " has the following lines to delete " + str(contigSegLinesToDel))
-
-      if contigSegLinesToDel:
-         gridOverlay.contigSegIdxToContigSeg[contigIdx].deleteLinesFromContigSegByLineIdxs(contigSegLinesToDel)
-         print("contig idx " + str(contigIdx) + " has the following line idxs " + str(gridOverlay.contigSegIdxToContigSeg[contigIdx].lineIdxs))
-         print("contig idx " + str(contigIdx) + " has the following groups of segments " + str(gridOverlay.contigSegIdxToContigSeg[contigIdx].contigSegments))
-
-      # draw contig segs 547, 437, 491, 612, 432, 460 from gridOverlay
- #     contigsToDraw = [gridOverlay.contigSegIdxToContigSeg[547], gridOverlay.contigSegIdxToContigSeg[437], gridOverlay.contigSegIdxToContigSeg[491], gridOverlay.contigSegIdxToContigSeg[612], gridOverlay.contigSegIdxToContigSeg[432], gridOverlay.contigSegIdxToContigSeg[460]]
-  #    contigsImgName = testOutPathPart1 + "AFTER_DEL_COLORCONTIG_547_437_491_612_432_460" + testOutPathPart2
-   #   drawListOfColorContigSegsToImg(contigsToDraw, lineMap.imgHeight, lineMap.imgWidth, contigsImgName, False, gridOverlay.lineSegIdxToLineSeg)
-
-   # draw entire HOMER SIMPSON from gridOverlay contig segs
-   allContigSegs = []
-   for contigIdx in gridOverlay.contigSegIdxToContigSeg:
-      allContigSegs.append(gridOverlay.contigSegIdxToContigSeg[contigIdx])
-
-   drawListOfContigSegsToImg(allContigSegs, lineMap.imgHeight, lineMap.imgWidth, testOutPathPart1 + "GRIDOVERLAY_HOMER_SIMPSON_FILTER_NOT_SELF_CONTOUR" + testOutPathPart2, False, gridOverlay.lineSegIdxToLineSeg)
-
- #  for contourIdx, uniqueContigSegs in lineMap.contourIdxToUniqueContigSegs.items():
- #     drawListOfContigSegsToImg(uniqueContigSegs, lineMap.imgHeight, lineMap.imgWidth, testOutPathPart1 + "CONTOUR_" + str(contourIdx) + "_CONTOUR1_CONTOUR2" + testOutPathPart2, False)
-
- #  cv.imshow("original", imgGray)
- #  cv.imshow("filtered image", imgOut)
- #  cv.waitKey(0)
- #  edges = np.uint8(edges)
-  # edges = cv.Sobel(blurImg, cv.CV_8U, 1, 1, ksize=5)
-
- #  plt.subplot(121),plt.imshow(img,cmap = 'gray')
- #  plt.title('Original Image'), plt.xticks([]), plt.yticks([])
- #  plt.subplot(122),plt.imshow(edges,cmap = 'gray')
- #  plt.title('Edgenume Image'), plt.xticks([]), plt.yticks([])
- #  cv.imshow("original", img)
- #  cv.imshow("edges", np.hstack([wide, tight, auto]))
- #  cv.waitKey(0)
-
-  # plt.show()
-
-# this API is to handle all processing calls that
-#  are then dumped into JSON - this is to speed up debugging process
-def lineMapStagesBeforeDumpIntoJSON(imgName):
-   lineMap = generateLineMapClsContours(imgName, True)
-
-   # for each contour handle its own parallel segments multiprocessCrawlContourForUniqueSeg(lineMap, 62)
-   #  delete both contour1 and contour2 -> whether to delete contour1 (outside for loop)
-   #   or contour 2 (inside for loop)
-   for contourIdx in lineMap.lineContourToLineIdxs:
-      lineMap.contourIdxToUniqueConts[contourIdx] = multiprocessCrawlContourForUniqueSeg(lineMap, contourIdx)
-
-   # dump firstLineMap maps to JSON
-   jsonName = os.path.splitext(imgName)[0] + ".json"
-   lineMap.dumpInfoToJSON(jsonName)
-
-   return lineMap
+   # now crawl the contig segs and look for the longest bCurves to start projecting to see
+   # if there are redundant lines that may or may not belong to bCurves and delete those lines
+   gridOverlay.useBCurvesToProjectAndRmvRedundSegs()
 
 # v2 of API above - this API will not do any processing. It will simply:
 #  1) get the lineCls objects from contours and populate them into lineMap
@@ -717,8 +664,6 @@ def main(argv):
                                      -i: input image name - can be raw image or json file
                                          if the input is json file - means that this image has
                                          already been processed up to a certain point
-                                         NOTE: a suggested test image is
-                                         /home/rudy/imgProjPython/HomerSimpson.png
                 """
    parser = argparse.ArgumentParser(
                        prog = __prog__,
@@ -735,15 +680,48 @@ def main(argv):
    else:
       firstLineMap = generateLinesClsObjsFromRawImg(args.imgName)
 
-   imgLineMapClassObj = firstLineMap
+   # before generating / removing redundant segs - first
+   # look at lineCls objects that visually cross each other but mathematically
+   # register as 2 lines only
+   #
+   # will convert those 2 lines as 4 lines, where those 2 lines will be split
+   # at the pt of the intersection - will use gridCls to look for lines that are
+   # within proximity of each other that potentially visually cross each other
 
-   ptsGraph = genContigSegsUsingNodeGraph(firstLineMap, False)
-   listOfContigSegs = ptsGraph.getAllContigsSegsAsList()
-   #NOTE - resTuple is tuple of (boolean indicating whether redundant line seg found,
-   #                             list of lines denoted as lineCls objects)
-   resTuple = useGridOverlayToRemoveRedundantContigSegs(listOfContigSegs)
+   # feed line map into fresh gridCls
+   #
+   # the modified lines are returned as lists
+ #  resolvedIntersectLines = useGridOverlayToSeparateIntersectLines(firstLineMap)
 
-  # handleProcessingOfContoursInImg(firstLineMap)
+
+   # contigSegsPtsGraph is determineContigSegFromLines class object
+   contigSegsPtsGraph = genContigSegsUsingNodeGraph(lineMap=firstLineMap, drawContigSegs=False)
+
+   # the removed redundant lines (holes) are also returned as a list
+   linesThatRemain, removedRedundantLines = useGridOverlayToRemoveRedundantContigSegs(contigSegsPtsGraph)
+
+  # contigSegsPtsGraph = genContigSegsUsingNodeGraph(lineList=linesThatRemain, drawContigSegs=False)
+  # realignedLines = userGridOverlayToAlignCurves(contigSegsPtsGraph, removedRedundantLines)
+
+  # for the lines that remain (now that the 1st pass in removing the redundant lines has been removed)
+  # remainLineMap = lineMapCls()
+  # remainLineMap.insertLinesToIdxMap(linesThatRemain)
+  # contigSegsPtsGraph = genContigSegsUsingNodeGraph(lineMap=remainLineMap, drawContigSegs=False)
+
+   # remove redundant lines using curve projection
+  # linesThatRemain , removedRedundantLines = useGridOverlayAndCurveProjToRmvRedundContigSegs(contigSegsPtsGraph)
+  
+   firstLineMap.generateImgFromLines(os.path.splitext(args.imgName)[0] + "GRIDOVERLAY_ORIG_FROMLINEMAP" + testOutPathPart2)
+
+   finalLineMap = lineMapCls()
+   for lineEntry in linesThatRemain:
+       finalLineMap.insertLineToIdxMap(lineEntry)
+   finalLineMap.generateImgFromLines(os.path.splitext(args.imgName)[0] + "GRIDOVERLAY_RMV_REDUNDANT_CONTOURS_FROMLINEMAP" + testOutPathPart2)
+
+   finalHoleMap = lineMapCls()
+   for holeEntry in removedRedundantLines:
+       finalHoleMap.insertLineToIdxMap(holeEntry)
+   finalHoleMap.generateImgFromLines(os.path.splitext(args.imgName)[0] + "GRIDOVERLAY_REDUNDANT_HOLES" + testOutPathPart2)
 
 if __name__ == '__main__':
    main(sys.argv)

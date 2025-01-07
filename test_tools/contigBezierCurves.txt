@@ -1,0 +1,17 @@
+-
+biMinus1 : 0,-4.12
+ai : 0,0
+alpha : 0.61
+-
+biMinus1 : 0,-5.69
+ai : 0,0
+alpha : 0.56
+-
+biMinus1 : 0,-8.54
+ai : 0,0
+alpha : 0.77
+-
+biMinus1 : 0,-7.22
+ai : 0,0
+alpha : 0.69
+-
