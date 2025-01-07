@@ -337,7 +337,7 @@ def generateLineMapClsContours(imgName, processContour=False, drawContours=True)
 
    if drawContours:
       lineMap.drawLinesToImg(imgOutLine, False)
-      cv.imwrite(testOutPathPart1 + testOutType + "PREALIGN" + testOutPathPart2, imgOutLine)
+      cv.imwrite(os.path.splitext(imgName)[0] + testOutType + "PREALIGN" + testOutPathPart2, imgOutLine)
 
    if processContour:
       #lineMap.alignLinesInContour()
