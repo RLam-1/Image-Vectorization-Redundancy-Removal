@@ -1,3 +1,5 @@
+**IMAGE VECTORIZATION AND CURVE REDUNDANCY REMOVAL**
+
 This Application processes any raw image and interprets the contents of the image's edges. It attempts to reconstruct the edges as LINES or CUBIC BEZIER CURVES.
 Typically, raw images have edges with non-zero edge thickness because the images are drawn either by pen/pencil or digital paintbrush. Thus, edge detection is performed on the image, we get 2 sets of redundant curves that actually denote the same edge.
 Thus, this application does the following:
@@ -9,7 +11,7 @@ Thus, this application does the following:
 TODO: Have noticed that with especially noisy images, all of the segments from a portion get removed. Working on combining lines into LINES or CUBIC BEZIER CURVES. Thus, may also need to align the curves as redundant lines are removed.
 
 For example - this is a input test image of Homer Simpson
-![screenshot](images/HomerSimpsonArmCrossed.png)
+![screenshot](images/HomerSimpsonArmsCrossed.png)
 
 If only edge detection was performed on the image, we would see redundant curves on the image because the line drawing the figure has a certain width
 ![screenshot](images/HomerSimpsonArmsCrossedGRIDOVERLAY_ORIG_FROMLINEMAP.png)
