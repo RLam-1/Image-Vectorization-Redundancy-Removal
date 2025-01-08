@@ -16,5 +16,5 @@ For example - this is a input test image of Homer Simpson
 If only edge detection was performed on the image, we would see redundant curves on the image because the line drawing the figure has a certain width
 ![screenshot](images/HomerSimpsonArmsCrossedGRIDOVERLAY_ORIG_FROMLINEMAP.png)
 
-With the breaking down of the contiguous segments into LINES and removing the redundant cruves, can see the same image except the curves are now clearly defined by 1 set of curves and can be used by further tools downstream
+With the breaking down of the contiguous segments into LINES and removing the redundant curves, can see the same image except the curves are now clearly defined by 1 set of curves and can be used by further tools downstream
 ![screenshot](images/HomerSimpsonArmsCrossedGRIDOVERLAY_RMV_REDUNDANT_CONTOURS_FROMLINEMAP.png)
