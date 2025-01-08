@@ -9,7 +9,8 @@ To solve this, the application does the following:
 4) Once the redundant lines are detected, remove the redundant lines
 
 **USING THE TOOL**
-Currently, this tool can only be executed on the Command Line. Execute the tool by calling ./imgProcessing.py -i <input image to process>.
+
+Currently, this tool can only be executed on the Command Line. Execute the tool by calling ./imgProcessing.py -i "input image to process".
 
 TODO: Have noticed that with especially noisy images, all of the segments from a portion get removed. Working on combining lines into LINES or CUBIC BEZIER CURVES. Thus, may also need to align the curves as redundant lines are removed.
 
